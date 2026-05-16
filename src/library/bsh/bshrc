@@ -44,3 +44,4 @@ COMPLETE=true
 SUGGEST=true
 TERMINAL_COLOR=false
 TERMINAL_FONT="/Library/Fonts/JetBrainsMono-Regular.ttf"
+TERMINAL_SUGGESTIONS=1

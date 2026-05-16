@@ -51,6 +51,7 @@ typedef struct {
     int saved_col;
 
     bool colors_enabled;
+    bool suggestions_enabled;
 
     // UTF-8 decoding state
     uint32_t utf8_codepoint;
@@ -59,11 +60,13 @@ typedef struct {
 
     int unacknowledged_chars;
 
-    // for color
+    // for color and inline suggestions
     char current_input[LINE_MAX];
+    char current_suggestion[LINE_MAX];  
     int input_len;
     int input_start_col;
     int input_start_row;
+
 } TerminalSession;
 
 static ui_window_t g_win;
@@ -752,7 +755,6 @@ static void draw_tabs(void) {
 static void draw_session(TerminalSession *s) {
     int base_y = TAB_BAR_H;
     ui_draw_rect(g_win, 0, base_y, g_win_w, g_win_h - base_y, s->bg_color);
-
     int max_offset = scrollback_max_offset(s);
     if (s->scroll_offset > max_offset) s->scroll_offset = max_offset;
     int total_lines = s->scroll_count + g_rows;
@@ -844,6 +846,11 @@ static void draw_session(TerminalSession *s) {
         int cy = base_y + s->cursor_row * g_line_h;
         ui_draw_rect(g_win, cx, cy + g_line_h - 2, g_char_w, 2, 0xFFFFFFFF);
     }
+    if (s->current_suggestion[0]) {
+            int sx = s->cursor_col * g_char_w;
+            int sy = base_y + s->cursor_row * g_line_h;
+            ui_draw_string(g_win, sx, sy, s->current_suggestion, 0xFF888888);
+        }
 
     ui_mark_dirty(g_win, 0, 0, g_win_w, g_win_h);
 }
@@ -873,6 +880,16 @@ static void tab_init(TerminalSession *s, int tty_id, int bsh_pid) {
     scrollback_init(s);
     
     char value[64];
+    // enable or disable inline suggestions
+    if (read_config_value("TERMINAL_SUGGESTIONS", value, sizeof(value)) == 0) {
+    if (strcmp(value, "1") == 0 || strcmp(value, "true") == 0) {
+        s->suggestions_enabled = true;
+    } else {
+        s->suggestions_enabled = false;
+    }
+    } else {
+    s->suggestions_enabled = true; 
+    }
 
     if (read_config_value("TERMINAL_COLOR", value, sizeof(value)) == 0) {
         if (strcmp(value, "1") == 0 || strcmp(value, "true") == 0) {
@@ -1106,7 +1123,41 @@ static void update_input_color(TerminalSession *s) {
         s->input_color = 0xFFFF5555; // red
     }
 }
-
+// inline suggestions
+static void suggestions(TerminalSession *s) {
+    if (!s->suggestions_enabled) {
+    s->current_suggestion[0] = '\0';
+    return;
+    }
+    if (s->input_len == 0) {
+    s->current_suggestion[0] = '\0';
+    return;
+    }
+    FAT32_FileInfo entries[128];
+    int count = sys_list("/bin", entries, 128);
+    // go through folder
+    for (int i = 0; i < count; i++) {
+        
+        char name[256];
+        strncpy(name, entries[i].name, sizeof(name));
+        int len = strlen(name);
+    
+        // remove .elf
+        if (len > 4 && strcmp(name + len - 4, ".elf") == 0) {
+            name[len - 4] = '\0';
+        }
+        int length = strlen(s->current_input);
+        if (strcmp(s->current_input, entries[i].name) == 0) {
+            s->current_suggestion[0] = '\0';
+            return;
+        }
+        if (strncmp(name, s->current_input, length) == 0) {
+            str_copy(s->current_suggestion, name + length, LINE_MAX);
+            return;
+        }
+    }
+    s->current_suggestion[0] = '\0';
+}
 static void handle_key(gui_event_t *ev) {
     TerminalSession *s = &g_tabs[g_active_tab];
     int legacy = ev->arg1;
@@ -1194,6 +1245,7 @@ static void handle_key(gui_event_t *ev) {
         }
 
         update_input_color(s);
+        suggestions(s);
     }
 
     if (codepoint >= 32 && codepoint != 127) {
