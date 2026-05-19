@@ -59,7 +59,7 @@ LDFLAGS = -m elf_x86_64 -nostdlib -static -pie --no-dynamic-linker \
 
 NASMFLAGS = -f elf64
 
-LIMINE_VERSION = 10.8.2
+LIMINE_VERSION = 11.4.1
 LIMINE_URL_BASE = https://github.com/limine-bootloader/limine/raw/v$(LIMINE_VERSION)
 
 HOST_OS := $(shell uname -s 2>/dev/null || echo Windows)
@@ -241,6 +241,7 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF)
 
 	@printf "$(YELLOW)[COPY]$(RESET) ASCII art...\n"
 	@if [ -f $(SRC_DIR)/library/art/boredos.txt ]; then printf "  -> boredos.txt\n"; cp $(SRC_DIR)/library/art/boredos.txt $(BUILD_DIR)/initrd/Library/art/; fi
+	@if [ -f $(SRC_DIR)/library/art/boredos_small.txt ]; then printf "  -> boredos_small.txt\n"; cp $(SRC_DIR)/library/art/boredos_small.txt $(BUILD_DIR)/initrd/Library/art/; fi
 
 	@printf "$(YELLOW)[COPY]$(RESET) Documentation...\n"
 	@for f in $$(find docs -name '*.md' 2>/dev/null); do \
