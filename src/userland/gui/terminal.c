@@ -61,8 +61,11 @@ typedef struct {
     int unacknowledged_chars;
 
     // for color and inline suggestions
+    // for color and inline suggestions
     char current_input[LINE_MAX];
     char current_suggestion[LINE_MAX];  
+    char current_suggestion[LINE_MAX];
+    bool suggestions_enabled;
     int input_len;
     int input_start_col;
     int input_start_row;
@@ -729,7 +732,6 @@ static void terminal_resize(int w, int h) {
 
 static void draw_tabs(void) {
     if (g_tab_count <= 0) return;
-    ui_draw_rect(g_win, 0, 0, g_win_w, TAB_BAR_H, 0xFF1A1A1A);
     int tab_w = get_tab_width();
     for (int i = 0; i < g_tab_count; i++) {
         int x = i * tab_w;
@@ -755,6 +757,13 @@ static void draw_tabs(void) {
 static void draw_session(TerminalSession *s) {
     int base_y = TAB_BAR_H;
     ui_draw_rect(g_win, 0, base_y, g_win_w, g_win_h - base_y, s->bg_color);
+    // draw suggestions
+    if (s->current_suggestion[0] && s->scroll_offset == 0) {
+    int sx = (s->cursor_col) * g_char_w;
+    int sy = base_y + s->cursor_row * g_line_h;
+    ui_draw_string(g_win, sx, sy, s->current_suggestion, 0xFF888888);
+}
+
     int max_offset = scrollback_max_offset(s);
     if (s->scroll_offset > max_offset) s->scroll_offset = max_offset;
     int total_lines = s->scroll_count + g_rows;
@@ -856,6 +865,7 @@ static void draw_session(TerminalSession *s) {
 }
 
 static void tab_init(TerminalSession *s, int tty_id, int bsh_pid) {
+    s->suggestions_enabled = true;
     s->tty_id = tty_id;
     s->bsh_pid = bsh_pid;
     s->cells = (CharCell *)malloc(sizeof(CharCell) * g_cols * g_rows);
@@ -1124,40 +1134,35 @@ static void update_input_color(TerminalSession *s) {
     }
 }
 // inline suggestions
-static void suggestions(TerminalSession *s) {
-    if (!s->suggestions_enabled) {
-    s->current_suggestion[0] = '\0';
-    return;
-    }
-    if (s->input_len == 0) {
-    s->current_suggestion[0] = '\0';
-    return;
-    }
+void suggestions(TerminalSession *s) {
+    if (s->suggestions_enabled == true) {
     FAT32_FileInfo entries[128];
     int count = sys_list("/bin", entries, 128);
-    // go through folder
     for (int i = 0; i < count; i++) {
         
         char name[256];
+        int length = strlen(s->current_input);
         strncpy(name, entries[i].name, sizeof(name));
+        if(length != 0) {
+        if (strcmp(s->current_input, name) != 0) {
         int len = strlen(name);
-    
-        // remove .elf
+        // strip .elf
         if (len > 4 && strcmp(name + len - 4, ".elf") == 0) {
             name[len - 4] = '\0';
         }
-        int length = strlen(s->current_input);
-        if (strcmp(s->current_input, entries[i].name) == 0) {
-            s->current_suggestion[0] = '\0';
-            return;
-        }
+
+        // check if name starts with what user typed
         if (strncmp(name, s->current_input, length) == 0) {
             str_copy(s->current_suggestion, name + length, LINE_MAX);
             return;
+                }
+            }
         }
+    }
     }
     s->current_suggestion[0] = '\0';
 }
+
 static void handle_key(gui_event_t *ev) {
     TerminalSession *s = &g_tabs[g_active_tab];
     int legacy = ev->arg1;
@@ -1165,6 +1170,7 @@ static void handle_key(gui_event_t *ev) {
     uint32_t codepoint = (uint32_t)ev->arg4;
 
     if (ctrl && (legacy == 'c' || legacy == 'C')) {
+        s->suggestions_enabled = true;
         int fg = sys_tty_get_fg(s->tty_id);
         if (fg > 0) {
             sys_tty_kill_fg(s->tty_id);
@@ -1205,11 +1211,13 @@ static void handle_key(gui_event_t *ev) {
         sys_tty_write_in(s->tty_id, seq, 3);
         return;
     } else if (legacy == KEY_UP) {
-        char seq[] = { 27, '[', 'A' };
+        s->suggestions_enabled = false;           
+        char seq[] = { 27, '[', 'A' };          
         sys_tty_write_in(s->tty_id, seq, 3);
         return;
     } else if (legacy == KEY_DOWN) {
-        char seq[] = { 27, '[', 'B' };
+        s->suggestions_enabled = false;
+        char seq[] = { 27, '[', 'B' };          
         sys_tty_write_in(s->tty_id, seq, 3);
         return;
     }
@@ -1238,6 +1246,7 @@ static void handle_key(gui_event_t *ev) {
                 s->unacknowledged_chars++;
             }
         } else if (legacy == KEY_ENTER) {
+            s->suggestions_enabled = true;
             s->input_color = 0xFFFFFFFF;
             s->input_len = 0;
             s->current_input[0] = 0;
